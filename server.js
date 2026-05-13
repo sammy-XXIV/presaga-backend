@@ -6,9 +6,12 @@ const axios      = require('axios')
 const cors       = require('cors')
 require('dotenv').config()
 
-const app = express()
+const { createHourlyMarkets, resolveHourlyMarkets } = require('./hourly-markets')
+
 app.use(express.json())
 app.use(cors())
+
+// ── CONFIG ────────────────────────────────────────────────────────────────────
 
 const CONFIG = {
   RPC:      'https://rpc-testnet.gokite.ai/',
@@ -28,6 +31,8 @@ const ABI = [
   'event MarketCreated(uint256 indexed id, string question, uint256 expiresAt)',
 ]
 
+// ── CLIENTS ───────────────────────────────────────────────────────────────────
+
 const provider = new ethers.JsonRpcProvider(CONFIG.RPC)
 const wallet   = new ethers.Wallet(process.env.DEPLOYER_KEY, provider)
 const contract = new ethers.Contract(CONFIG.CONTRACT, ABI, wallet)
@@ -36,6 +41,8 @@ const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_KEY
 )
+
+// ── HELPERS ───────────────────────────────────────────────────────────────────
 
 function durationSeconds(dateStr) {
   return Math.floor((new Date(dateStr).getTime() - Date.now()) / 1000)
@@ -86,6 +93,8 @@ async function createOnChain(question, resolutionSource, duration) {
   return event ? Number(event.args.id) : null
 }
 
+// ── POLYMARKET SYNC ───────────────────────────────────────────────────────────
+
 async function syncPolymarket() {
   console.log('[Polymarket] Fetching markets...')
   try {
@@ -94,6 +103,7 @@ async function syncPolymarket() {
       timeout: 15000,
     })
 
+    // No date filter — sync all open binary markets
     const markets = (res.data || []).filter(m =>
       m.question &&
       m.endDate &&
@@ -109,7 +119,7 @@ async function syncPolymarket() {
       if (await marketAlreadySynced('polymarket', sourceId)) continue
 
       const duration = durationSeconds(m.endDate)
-      if (duration < 300) continue
+      if (duration < 3600) continue
 
       try {
         const presagaMarketId = await createOnChain(m.question, `polymarket:${sourceId}`, duration)
@@ -124,6 +134,8 @@ async function syncPolymarket() {
     console.error(`[Polymarket] Fetch failed: ${e.message}`)
   }
 }
+
+// ── MANIFOLD SYNC ─────────────────────────────────────────────────────────────
 
 async function syncManifold() {
   console.log('[Manifold] Fetching markets...')
@@ -150,7 +162,7 @@ async function syncManifold() {
 
       const closesAt = new Date(m.closeTime).toISOString()
       const duration = durationSeconds(closesAt)
-      if (duration < 300) continue
+      if (duration < 3600) continue
 
       try {
         const presagaMarketId = await createOnChain(m.question, `manifold:${sourceId}`, duration)
@@ -165,6 +177,8 @@ async function syncManifold() {
     console.error(`[Manifold] Fetch failed: ${e.message}`)
   }
 }
+
+// ── LIMITLESS SYNC ────────────────────────────────────────────────────────────
 
 async function syncLimitless() {
   console.log('[Limitless] Fetching markets...')
@@ -189,7 +203,7 @@ async function syncLimitless() {
       if (await marketAlreadySynced('limitless', sourceId)) continue
 
       const duration = durationFromMs(m.expirationTimestamp)
-      if (duration < 300) continue
+      if (duration < 300) continue  // contract minimum is 5 minutes
 
       const MAX            = 30 * 24 * 60 * 60
       const cappedDuration = Math.min(duration, MAX)
@@ -208,6 +222,8 @@ async function syncLimitless() {
     console.error(`[Limitless] Fetch failed: ${e.message}`)
   }
 }
+
+// ── RESOLUTION SYNC ───────────────────────────────────────────────────────────
 
 async function resolveMarkets() {
   console.log('[Resolve] Checking for resolved markets...')
@@ -244,7 +260,7 @@ async function resolveMarkets() {
           const res = await axios.get(`https://api.limitless.exchange/markets/${row.source_id}`, { timeout: 10000 })
           const m   = res.data
           if (m?.expired && m?.winningOutcomeIndex !== null && m?.winningOutcomeIndex !== undefined) {
-            outcome = m.winningOutcomeIndex === 0 ? 1 : 2
+            outcome = m.winningOutcomeIndex === 0 ? 1 : 2  // 0=Up=Yes, 1=Down=No
           }
         }
 
@@ -269,9 +285,11 @@ async function resolveMarkets() {
   }
 }
 
+// ── DEBUG ─────────────────────────────────────────────────────────────────────
+
 app.get('/debug/polymarket', async (req, res) => {
   try {
-    const r = await axios.get(URLS.POLYMARKET, {
+    const r = await axios.get('https://gamma-api.polymarket.com/markets', {
       params: { closed: false, limit: 5 },
       timeout: 15000,
     })
@@ -283,7 +301,7 @@ app.get('/debug/polymarket', async (req, res) => {
 
 app.get('/debug/manifold', async (req, res) => {
   try {
-    const r = await axios.get(URLS.MANIFOLD, {
+    const r = await axios.get('https://api.manifold.markets/v0/search-markets', {
       params: { limit: 5, filter: 'open', outcomeType: 'BINARY' },
       timeout: 15000,
     })
@@ -295,8 +313,8 @@ app.get('/debug/manifold', async (req, res) => {
 
 app.get('/debug/limitless', async (req, res) => {
   try {
-    const r = await axios.get(URLS.LIMITLESS, {
-      params: { page: 1, limit: 5, tradeType: 'amm' },
+    const r = await axios.get('https://api.limitless.exchange/markets/active', {
+      params: { limit: 5, tradeType: 'amm' },
       timeout: 15000,
     })
     res.json({ status: 200, count: r.data?.totalMarketsCount, sample: r.data?.data?.slice(0, 2) })
@@ -304,6 +322,8 @@ app.get('/debug/limitless', async (req, res) => {
     res.json({ status: e.response?.status, error: e.message, data: e.response?.data })
   }
 })
+
+// ── MANUAL SYNC TRIGGERS ──────────────────────────────────────────────────────
 
 app.get('/sync/polymarket', async (req, res) => {
   await syncPolymarket()
@@ -319,6 +339,8 @@ app.get('/sync/resolve', async (req, res) => {
   await resolveMarkets()
   res.json({ status: 'done' })
 })
+
+// ── AGENT REGISTRATION ────────────────────────────────────────────────────────
 
 app.post('/api/register', async (req, res) => {
   const { agentId, wallet: agentWallet } = req.body
@@ -345,6 +367,8 @@ app.post('/api/register', async (req, res) => {
   }
 })
 
+// ── MARKETS API ───────────────────────────────────────────────────────────────
+
 app.get('/api/markets', async (req, res) => {
   try {
     const { data, error } = await supabase
@@ -361,22 +385,52 @@ app.get('/api/markets', async (req, res) => {
   }
 })
 
+// ── HEALTH ────────────────────────────────────────────────────────────────────
+
+app.get('/sync/hourly', async (req, res) => {
+  await createHourlyMarkets()
+  res.json({ status: 'done' })
+})
+
+app.get('/sync/resolve-hourly', async (req, res) => {
+  await resolveHourlyMarkets()
+  res.json({ status: 'done' })
+})
+
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', contract: CONFIG.CONTRACT, network: 'kite-testnet' })
 })
 
+// ── CRON JOBS ─────────────────────────────────────────────────────────────────
+
+// Sync Polymarket + Manifold every 6 hours
 cron.schedule('0 */6 * * *', async () => {
   await syncPolymarket()
   await syncManifold()
 })
 
+// Sync Limitless every 30 minutes
 cron.schedule('*/30 * * * *', async () => {
   await syncLimitless()
 })
 
+// Create hourly markets at top of every hour
+cron.schedule('0 * * * *', async () => {
+  await createHourlyMarkets()
+})
+
+// Resolve hourly markets 5 min after the hour
+cron.schedule('5 * * * *', async () => {
+  await resolveHourlyMarkets()
+})
+
+// Check all resolutions every 10 minutes
 cron.schedule('*/10 * * * *', async () => {
   await resolveMarkets()
+  await resolveHourlyMarkets()
 })
+
+// ── START ─────────────────────────────────────────────────────────────────────
 
 const PORT = process.env.PORT || 3000
 
@@ -388,5 +442,7 @@ app.listen(PORT, async () => {
   await syncPolymarket()
   await syncManifold()
   await syncLimitless()
+  await createHourlyMarkets()
   await resolveMarkets()
+  await resolveHourlyMarkets()
 })
