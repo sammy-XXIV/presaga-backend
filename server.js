@@ -17,7 +17,11 @@ const CONFIG = {
   CONTRACT: '0x04d8bEA0bC25f4C69D215CcCb05eeb60eC733CcC',
 }
 
-const ABI = [
+const URLS = {
+  POLYMARKET: process.env.POLYMARKET_URL || 'https://gamma-api.polymarket.com/markets',
+  MANIFOLD:   process.env.MANIFOLD_URL   || 'https://api.manifold.markets/v0/search-markets',
+  LIMITLESS:  process.env.LIMITLESS_URL  || 'https://api.limitless.exchange/markets/active',
+}
   'function createMarket(string calldata question, string calldata resolutionSource, uint256 duration) external returns (uint256)',
   'function resolveMarket(uint256 marketId, uint8 outcome) external',
   'function marketCount() external view returns (uint256)',
@@ -91,7 +95,7 @@ async function createOnChain(question, resolutionSource, duration) {
 async function syncPolymarket() {
   console.log('[Polymarket] Fetching markets...')
   try {
-    const res = await axios.get('https://gamma-api.polymarket.com/markets', {
+    const res = await axios.get(URLS.POLYMARKET, {
       params: { closed: false, limit: 50 },
       timeout: 15000,
     })
@@ -133,7 +137,7 @@ async function syncPolymarket() {
 async function syncManifold() {
   console.log('[Manifold] Fetching markets...')
   try {
-    const res = await axios.get('https://api.manifold.markets/v0/search-markets', {
+    const res = await axios.get(URLS.MANIFOLD, {
       params: { limit: 50, sort: 'close-date', filter: 'open', outcomeType: 'BINARY' },
       timeout: 15000,
     })
@@ -176,8 +180,8 @@ async function syncManifold() {
 async function syncLimitless() {
   console.log('[Limitless] Fetching markets...')
   try {
-    const res = await axios.get('https://api.limitless.exchange/markets/active', {
-      params: { limit: 50, tradeType: 'amm' },
+    const res = await axios.get(URLS.LIMITLESS, {
+      params: { page: 1, limit: 50, tradeType: 'amm' },
       timeout: 15000,
     })
 
@@ -416,3 +420,4 @@ app.listen(PORT, async () => {
   await syncLimitless()
   await resolveMarkets()
 })
+
