@@ -22,6 +22,8 @@ const URLS = {
   MANIFOLD:   process.env.MANIFOLD_URL   || 'https://api.manifold.markets/v0/search-markets',
   LIMITLESS:  process.env.LIMITLESS_URL  || 'https://api.limitless.exchange/markets/active',
 }
+
+const ABI = [
   'function createMarket(string calldata question, string calldata resolutionSource, uint256 duration) external returns (uint256)',
   'function resolveMarket(uint256 marketId, uint8 outcome) external',
   'function marketCount() external view returns (uint256)',
