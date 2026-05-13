@@ -14,7 +14,7 @@ app.use(cors())
 
 const CONFIG = {
   RPC:      'https://rpc-testnet.gokite.ai/',
-  CONTRACT: '0x686D8734D3988BB6B89d679a48FF4058DFCB66e9',
+  CONTRACT: '0x04d8bEA0bC25f4C69D215CcCb05eeb60eC733CcC',
 }
 
 const ABI = [
@@ -196,7 +196,7 @@ async function syncLimitless() {
       if (await marketAlreadySynced('limitless', sourceId)) continue
 
       const duration = durationFromMs(m.expirationTimestamp)
-      if (duration < 3600) continue  // contract minimum is 1 hour
+      if (duration < 300) continue  // contract minimum is 5 minutes
 
       const MAX            = 30 * 24 * 60 * 60
       const cappedDuration = Math.min(duration, MAX)
