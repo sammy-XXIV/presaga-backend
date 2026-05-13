@@ -9,7 +9,6 @@
 
 const ethers = require('ethers')
 const axios  = require('axios')
-const cron   = require('node-cron')
 const { createClient } = require('@supabase/supabase-js')
 require('dotenv').config()
 
@@ -19,11 +18,11 @@ const CONTRACT = process.env.PRESAGA_ADDRESS || '0x04d8bEA0bC25f4C69D215CcCb05ee
 const RPC      = 'https://rpc-testnet.gokite.ai/'
 
 const ASSETS = [
-  { id: 'bitcoin',  symbol: 'BTC',  name: 'Bitcoin' },
-  { id: 'ethereum', symbol: 'ETH',  name: 'Ethereum' },
-  { id: 'solana',   symbol: 'SOL',  name: 'Solana' },
-  { id: 'binancecoin', symbol: 'BNB', name: 'BNB' },
-  { id: 'dogecoin', symbol: 'DOGE', name: 'Dogecoin' },
+  { id: 'bitcoin',     symbol: 'BTC',  name: 'Bitcoin' },
+  { id: 'ethereum',    symbol: 'ETH',  name: 'Ethereum' },
+  { id: 'solana',      symbol: 'SOL',  name: 'Solana' },
+  { id: 'binancecoin', symbol: 'BNB',  name: 'BNB' },
+  { id: 'dogecoin',    symbol: 'DOGE', name: 'Dogecoin' },
 ]
 
 const ABI = [
@@ -49,6 +48,7 @@ async function getPrices() {
   const ids = ASSETS.map(a => a.id).join(',')
   const res = await axios.get('https://api.coingecko.com/api/v3/simple/price', {
     params: { ids, vs_currencies: 'usd' },
+    headers: { 'x-cg-demo-api-key': process.env.COINGECKO_API_KEY },
     timeout: 10000,
   })
   return res.data
@@ -151,11 +151,14 @@ async function resolveHourlyMarkets() {
       return
     }
 
-    // Fetch current prices
-    const prices = await getPrices()
+    const prices = {}
+    const priceData = await getPrices()
+    for (const asset of ASSETS) {
+      prices[asset.id] = priceData[asset.id]?.usd
+    }
 
     for (const row of pending) {
-      const currentPrice = prices[row.asset]?.usd
+      const currentPrice = prices[row.asset]
       if (!currentPrice) continue
 
       // YES = price is above open price, NO = price is below
@@ -185,4 +188,3 @@ async function resolveHourlyMarkets() {
 // ── EXPORT FOR USE IN server.js ───────────────────────────────────────────────
 
 module.exports = { createHourlyMarkets, resolveHourlyMarkets }
-
