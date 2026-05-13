@@ -14,7 +14,7 @@ const { createHourlyMarkets, resolveHourlyMarkets } = require('./hourly-markets'
 
 const CONFIG = {
   RPC:      'https://rpc-testnet.gokite.ai/',
-  CONTRACT: '0x04d8bEA0bC25f4C69D215CcCb05eeb60eC733CcC',
+  CONTRACT: '0xCe1706b24BD7c0fbD37929D27851E5900b569116',
 }
 
 const URLS = {

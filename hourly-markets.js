@@ -14,7 +14,7 @@ require('dotenv').config()
 
 // ── CONFIG ────────────────────────────────────────────────────────────────────
 
-const CONTRACT = process.env.PRESAGA_ADDRESS || '0x04d8bEA0bC25f4C69D215CcCb05eeb60eC733CcC'
+const CONTRACT = process.env.PRESAGA_ADDRESS || '0xCe1706b24BD7c0fbD37929D27851E5900b569116'
 const RPC      = 'https://rpc-testnet.gokite.ai/'
 
 const ASSETS = [
