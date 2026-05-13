@@ -177,7 +177,7 @@ async function syncLimitless() {
   console.log('[Limitless] Fetching markets...')
   try {
     const res = await axios.get('https://api.limitless.exchange/markets/active', {
-      params: { limit: 50, tradeType: 'amm' },
+      params: { page: 1, limit: 50, tradeType: 'amm' },
       timeout: 15000,
     })
 
