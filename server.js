@@ -399,6 +399,12 @@ cron.schedule('*/10 * * * *', async () => {
   await resolveHourlyMarkets()
 })
 
+// Self-ping to prevent Render from sleeping
+const SELF_URL = process.env.RENDER_EXTERNAL_URL || `http://localhost:${process.env.PORT || 3000}`
+setInterval(() => {
+  axios.get(`${SELF_URL}/health`).catch(() => {})
+}, 60 * 1000)
+
 const PORT = process.env.PORT || 3000
 
 app.listen(PORT, async () => {
