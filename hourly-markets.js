@@ -60,8 +60,8 @@ function formatPrice(price) {
   return `$${price.toFixed(4)}`
 }
 
-async function createOnChainMarket(question, resolutionSource, duration) {
-  const tx      = await contract.createMarket(question, resolutionSource, duration, { gasLimit: 500000 })
+async function createOnChainMarket(question, resolutionSource, duration, nonce) {
+  const tx      = await contract.createMarket(question, resolutionSource, duration, { gasLimit: 500000, nonce })
   const receipt = await tx.wait()
   const event   = receipt.logs
     .map(log => { try { return contract.interface.parseLog(log) } catch { return null } })
@@ -88,20 +88,22 @@ async function createHourlyMarkets() {
       return
     }
 
+    // Get nonce once and increment manually to avoid collision
+    let nonce = await wallet.getNonce('pending')
+
     for (const asset of ASSETS) {
       const price = prices[asset.id]?.usd
       if (!price) continue
 
-      const question        = `Will ${asset.name} (${asset.symbol}) be above ${formatPrice(price)} at ${timeLabel}?`
+      const question         = `Will ${asset.name} (${asset.symbol}) be above ${formatPrice(price)} at ${timeLabel}?`
       const resolutionSource = `presaga-oracle:${asset.id}:${price}:${nextHour.toISOString()}`
 
       try {
-        // Check if already created this hour
         const { data } = await supabase
           .from('hourly_markets')
           .select('id')
           .eq('asset', asset.id)
-          .eq('open_time', now.toISOString().slice(0, 13))  // YYYY-MM-DDTHH
+          .eq('open_time', now.toISOString().slice(0, 13))
           .maybeSingle()
 
         if (data) {
@@ -109,23 +111,24 @@ async function createHourlyMarkets() {
           continue
         }
 
-        const marketId = await createOnChainMarket(question, resolutionSource, duration)
+        const marketId = await createOnChainMarket(question, resolutionSource, duration, nonce)
+        nonce++
 
         await supabase.from('hourly_markets').insert({
-          asset:          asset.id,
-          symbol:         asset.symbol,
-          open_price:     price,
-          open_time:      now.toISOString().slice(0, 13),
-          close_time:     nextHour.toISOString(),
+          asset:             asset.id,
+          symbol:            asset.symbol,
+          open_price:        price,
+          open_time:         now.toISOString().slice(0, 13),
+          close_time:        nextHour.toISOString(),
           presaga_market_id: marketId,
           question,
-          resolved:       false,
+          resolved:          false,
         })
 
         console.log(`[Hourly] Created market #${marketId}: ${question}`)
-        await new Promise(r => setTimeout(r, 2000))
       } catch (e) {
         console.error(`[Hourly] Failed for ${asset.symbol}: ${e.message}`)
+        nonce++ // still increment so the next asset doesn't collide
       }
     }
   } catch (e) {
@@ -157,16 +160,18 @@ async function resolveHourlyMarkets() {
       prices[asset.id] = priceData[asset.id]?.usd
     }
 
+    let nonce = await wallet.getNonce('pending')
+
     for (const row of pending) {
       const currentPrice = prices[row.asset]
       if (!currentPrice) continue
 
-      // YES = price is above open price, NO = price is below
       const outcome = currentPrice >= row.open_price ? 1 : 2
       const label   = outcome === 1 ? 'YES (Up)' : 'NO (Down)'
 
       try {
-        const tx = await contract.resolveMarket(row.presaga_market_id, outcome, { gasLimit: 300000 })
+        const tx = await contract.resolveMarket(row.presaga_market_id, outcome, { gasLimit: 300000, nonce })
+        nonce++
         await tx.wait()
 
         await supabase
@@ -175,9 +180,9 @@ async function resolveHourlyMarkets() {
           .eq('id', row.id)
 
         console.log(`[Hourly Resolve] Market #${row.presaga_market_id} ${row.symbol}: open $${row.open_price} → close $${currentPrice} → ${label}`)
-        await new Promise(r => setTimeout(r, 2000))
       } catch (e) {
         console.error(`[Hourly Resolve] Failed for market #${row.presaga_market_id}: ${e.message}`)
+        nonce++
       }
     }
   } catch (e) {
