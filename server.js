@@ -376,15 +376,20 @@ app.post('/api/register', async (req, res) => {
 
 app.get('/api/markets', async (req, res) => {
   try {
-    const { data, error } = await supabase
+    const page  = Math.max(0, parseInt(req.query.page  || '0'))
+    const limit = Math.min(200, Math.max(1, parseInt(req.query.limit || '200')))
+    const now   = new Date().toISOString()
+
+    const { data, error, count } = await supabase
       .from('markets_sync')
-      .select('*')
+      .select('*', { count: 'exact' })
       .eq('resolved', false)
+      .gt('closes_at', now)
       .order('closes_at', { ascending: true })
-      .limit(50)
+      .range(page * limit, page * limit + limit - 1)
 
     if (error) throw error
-    return res.json(data)
+    return res.json({ markets: data, total: count, page, limit })
   } catch (e) {
     return res.status(500).json({ error: e.message })
   }
