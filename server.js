@@ -48,33 +48,50 @@ function durationFromMs(ms) {
 }
 
 async function marketAlreadySynced(source, sourceId) {
-  const { data } = await supabase
-    .from('markets_sync')
-    .select('id')
-    .eq('source', source)
-    .eq('source_id', String(sourceId))
-    .maybeSingle()
-  return !!data
+  try {
+    const { data, error } = await supabase
+      .from('markets_sync')
+      .select('id')
+      .eq('source', source)
+      .eq('source_id', String(sourceId))
+      .maybeSingle()
+    if (error) {
+      console.warn(`[Supabase] Dedup check failed (${error.message}) — skipping market creation to avoid duplicates`)
+      return true
+    }
+    return !!data
+  } catch (e) {
+    console.warn(`[Supabase] Unavailable (${e.message}) — skipping market creation to avoid duplicates`)
+    return true
+  }
 }
 
 async function saveMarket(source, sourceId, presagaMarketId, question, resolutionSource, closesAt) {
-  await supabase.from('markets_sync').insert({
-    source,
-    source_id:         String(sourceId),
-    presaga_market_id: presagaMarketId,
-    question,
-    resolution_source: resolutionSource,
-    closes_at:         closesAt,
-    resolved:          false,
-  })
+  try {
+    await supabase.from('markets_sync').insert({
+      source,
+      source_id:         String(sourceId),
+      presaga_market_id: presagaMarketId,
+      question,
+      resolution_source: resolutionSource,
+      closes_at:         closesAt,
+      resolved:          false,
+    })
+  } catch (e) {
+    console.warn(`[Supabase] Failed to save market #${presagaMarketId}: ${e.message}`)
+  }
 }
 
 async function markResolved(source, sourceId, outcome) {
-  await supabase
-    .from('markets_sync')
-    .update({ resolved: true, outcome })
-    .eq('source', source)
-    .eq('source_id', String(sourceId))
+  try {
+    await supabase
+      .from('markets_sync')
+      .update({ resolved: true, outcome })
+      .eq('source', source)
+      .eq('source_id', String(sourceId))
+  } catch (e) {
+    console.warn(`[Supabase] Failed to mark resolved (${source}/${sourceId}): ${e.message}`)
+  }
 }
 
 async function createOnChain(question, resolutionSource, duration) {

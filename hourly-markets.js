@@ -99,12 +99,17 @@ async function createHourlyMarkets() {
       const resolutionSource = `presaga-oracle:${asset.id}:${price}:${nextHour.toISOString()}`
 
       try {
-        const { data } = await supabase
+        const { data, error: dbError } = await supabase
           .from('hourly_markets')
           .select('id')
           .eq('asset', asset.id)
           .eq('open_time', now.toISOString().slice(0, 13))
           .maybeSingle()
+
+        if (dbError) {
+          console.warn(`[Hourly] Supabase unavailable (${dbError.message}) — skipping ${asset.symbol} to avoid duplicates`)
+          continue
+        }
 
         if (data) {
           console.log(`[Hourly] Already created ${asset.symbol} for this hour`)
@@ -114,16 +119,20 @@ async function createHourlyMarkets() {
         const marketId = await createOnChainMarket(question, resolutionSource, duration, nonce)
         nonce++
 
-        await supabase.from('hourly_markets').insert({
-          asset:             asset.id,
-          symbol:            asset.symbol,
-          open_price:        price,
-          open_time:         now.toISOString().slice(0, 13),
-          close_time:        nextHour.toISOString(),
-          presaga_market_id: marketId,
-          question,
-          resolved:          false,
-        })
+        try {
+          await supabase.from('hourly_markets').insert({
+            asset:             asset.id,
+            symbol:            asset.symbol,
+            open_price:        price,
+            open_time:         now.toISOString().slice(0, 13),
+            close_time:        nextHour.toISOString(),
+            presaga_market_id: marketId,
+            question,
+            resolved:          false,
+          })
+        } catch (saveErr) {
+          console.warn(`[Hourly] Failed to save ${asset.symbol} to Supabase: ${saveErr.message}`)
+        }
 
         console.log(`[Hourly] Created market #${marketId}: ${question}`)
       } catch (e) {
@@ -143,11 +152,16 @@ async function resolveHourlyMarkets() {
   try {
     const now = new Date()
 
-    const { data: pending } = await supabase
+    const { data: pending, error: dbError } = await supabase
       .from('hourly_markets')
       .select('*')
       .eq('resolved', false)
       .lt('close_time', now.toISOString())
+
+    if (dbError) {
+      console.warn(`[Hourly Resolve] Supabase unavailable: ${dbError.message}`)
+      return
+    }
 
     if (!pending?.length) {
       console.log('[Hourly Resolve] Nothing to resolve')
@@ -174,10 +188,14 @@ async function resolveHourlyMarkets() {
         nonce++
         await tx.wait()
 
-        await supabase
-          .from('hourly_markets')
-          .update({ resolved: true, close_price: currentPrice, outcome: label })
-          .eq('id', row.id)
+        try {
+          await supabase
+            .from('hourly_markets')
+            .update({ resolved: true, close_price: currentPrice, outcome: label })
+            .eq('id', row.id)
+        } catch (saveErr) {
+          console.warn(`[Hourly Resolve] Failed to update Supabase for market #${row.presaga_market_id}: ${saveErr.message}`)
+        }
 
         console.log(`[Hourly Resolve] Market #${row.presaga_market_id} ${row.symbol}: open $${row.open_price} → close $${currentPrice} → ${label}`)
       } catch (e) {
